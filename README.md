@@ -122,7 +122,7 @@ model = "gpt-5.1"
 base_url = "https://api.openai.com/v1"
 reasoning_effort = "medium"
 reasoning_summary = "auto"
-api_key_env = "OPENAI_API_KEY"
+api_key = "<your-api-key>"
 ```
 
 字段说明：
@@ -131,13 +131,18 @@ api_key_env = "OPENAI_API_KEY"
 - `base_url`：OpenAI 或兼容 OpenAI API 的服务地址；使用官方 OpenAI 时可不填。
 - `reasoning_effort`：推理强度，例如 `low`、`medium`、`high`。
 - `reasoning_summary`：reasoning summary 设置，默认 `auto`。
-- `api_key_env`：读取 API key 的环境变量名，默认 `OPENAI_API_KEY`。
+- `api_key`：直接写在本地配置文件里的 API key。
+- `api_key_env`：可选替代项，表示从哪个环境变量读取 API key，默认 `OPENAI_API_KEY`。
 
-API key 仍建议放在环境变量或系统密钥管理里，不建议明文写进配置文件：
+如果不想把 key 写进配置文件，也可以改用环境变量方式：
 
-```bash
-export OPENAI_API_KEY=...
+```toml
+[openai]
+model = "gpt-5.1"
+api_key_env = "OPENAI_API_KEY"
 ```
+
+然后在 shell 里设置 `OPENAI_API_KEY`。
 
 OpenAI live test 默认不会强制执行。只有设置下面变量时，测试才要求真实调用 OpenAI：
 

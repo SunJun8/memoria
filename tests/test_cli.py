@@ -2,9 +2,11 @@ import json
 
 from typer.testing import CliRunner
 
+from memoria.infrastructure.llm.mock_provider import MockLLMProvider
 from memoria.infrastructure.db.session import create_engine_for_path, create_session_factory
 from memoria.infrastructure.db.models import LLMJob, Proposal
 from memoria.interfaces.cli.app import app
+from memoria.interfaces.cli.commands import sleep as sleep_command
 
 
 def test_cli_ingest_and_list_issues(monkeypatch, tmp_path):
@@ -123,3 +125,33 @@ def test_cli_sleep_without_api_key_fails_before_db_init(monkeypatch, tmp_path):
     assert result.exit_code == 1
     assert "OPENAI_API_KEY" in result.output
     assert not db_path.exists()
+
+
+def test_cli_sleep_uses_api_key_from_config_file(monkeypatch, tmp_path):
+    db_path = tmp_path / "configured-key.db"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[openai]
+api_key = "configured-api-key"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MEMORIA_CONFIG", str(config_path))
+    monkeypatch.setenv("MEMORIA_DB_PATH", str(db_path))
+    monkeypatch.setenv("MEMORIA_JOBS_DIR", str(tmp_path / "jobs"))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    captured = {}
+
+    class FakeOpenAIProvider(MockLLMProvider):
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(sleep_command, "OpenAIProvider", FakeOpenAIProvider)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["sleep"])
+
+    assert result.exit_code == 0
+    assert captured["api_key"] == "configured-api-key"
+    assert "OPENAI_API_KEY" not in result.output

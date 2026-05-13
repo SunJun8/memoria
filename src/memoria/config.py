@@ -58,6 +58,7 @@ class MemoriaConfig:
     llm_model: str = "gpt-5.1"
     reasoning_effort: str = "medium"
     reasoning_summary: str = "auto"
+    openai_api_key: str | None = None
     api_key_env: str = "OPENAI_API_KEY"
     openai_base_url: str | None = None
     store_llm_transcripts: bool = True
@@ -86,6 +87,7 @@ def load_config() -> MemoriaConfig:
         openai_config.get("reasoning_summary", "auto"),
     )
     api_key_env = _api_key_env(_env_str("MEMORIA_OPENAI_API_KEY_ENV", openai_config.get("api_key_env")))
+    openai_api_key = openai_config.get("api_key")
     openai_base_url = _env_str("MEMORIA_OPENAI_BASE_URL", openai_config.get("base_url"))
 
     return MemoriaConfig(
@@ -97,6 +99,7 @@ def load_config() -> MemoriaConfig:
         llm_model=llm_model,
         reasoning_effort=reasoning_effort,
         reasoning_summary=reasoning_summary,
+        openai_api_key=openai_api_key,
         api_key_env=api_key_env,
         openai_base_url=openai_base_url,
     )

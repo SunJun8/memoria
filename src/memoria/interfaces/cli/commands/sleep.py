@@ -46,7 +46,7 @@ def run_sleep(
 
     if not mock:
         model = config.llm_model
-        api_key = os.environ.get(config.api_key_env)
+        api_key = config.openai_api_key or os.environ.get(config.api_key_env)
         if not api_key:
             typer.echo(f"{config.api_key_env} is required unless --mock is used.", err=True)
             raise typer.Exit(1)

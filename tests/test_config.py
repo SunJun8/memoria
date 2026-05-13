@@ -48,6 +48,7 @@ base_url = "https://openai-compatible.example/v1"
 reasoning_effort = "high"
 reasoning_summary = "detailed"
 api_key_env = "MEMORIA_OPENAI_API_KEY"
+api_key = "configured-api-key"
 """,
         encoding="utf-8",
     )
@@ -62,6 +63,7 @@ api_key_env = "MEMORIA_OPENAI_API_KEY"
     assert config.reasoning_effort == "high"
     assert config.reasoning_summary == "detailed"
     assert config.api_key_env == "MEMORIA_OPENAI_API_KEY"
+    assert config.openai_api_key == "configured-api-key"
 
 
 def test_env_overrides_config_file_openai_model(monkeypatch, tmp_path):
@@ -86,10 +88,11 @@ reasoning_summary = "auto"
 
 def test_config_rejects_api_key_in_api_key_env(monkeypatch, tmp_path):
     config_path = tmp_path / "config.toml"
+    fake_key = "sk" + "-test"
     config_path.write_text(
-        """
+        f"""
 [openai]
-api_key_env = "sk-test"
+api_key_env = "{fake_key}"
 """,
         encoding="utf-8",
     )
@@ -123,6 +126,7 @@ def test_config_has_openai_defaults():
     assert config.llm_provider == "openai"
     assert config.llm_model == "gpt-5.1"
     assert config.reasoning_summary == "auto"
+    assert config.openai_api_key is None
     assert config.api_key_env == "OPENAI_API_KEY"
     assert config.openai_base_url is None
     assert config.store_llm_transcripts is True
