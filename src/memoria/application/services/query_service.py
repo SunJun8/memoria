@@ -14,6 +14,7 @@ from memoria.infrastructure.db.models import (
     SleepReport,
     utcnow,
 )
+from memoria.domain.enums import JobType
 
 
 class QueryService:
@@ -86,6 +87,13 @@ class QueryService:
             statement = select(Proposal).order_by(Proposal.created_at.desc())
             return [self._proposal_dict(proposal) for proposal in session.scalars(statement).all()]
 
+    def get_proposal(self, proposal_id: int) -> Optional[dict]:
+        with self._session_factory() as session:
+            proposal = session.get(Proposal, proposal_id)
+            if proposal is None:
+                return None
+            return self._proposal_dict(proposal)
+
     def resolve_proposal(self, proposal_id: int, state: str) -> dict:
         with self._session_factory() as session:
             proposal = session.get(Proposal, proposal_id)
@@ -115,10 +123,19 @@ class QueryService:
             statement = select(SleepReport).order_by(SleepReport.created_at.desc())
             return [self._sleep_report_dict(report) for report in session.scalars(statement).all()]
 
+    def list_sleep_jobs(self) -> list[dict]:
+        with self._session_factory() as session:
+            statement = (
+                select(LLMJob)
+                .where(LLMJob.job_type == JobType.SLEEP.value)
+                .order_by(LLMJob.created_at.desc(), LLMJob.id.desc())
+            )
+            return [self._job_dict(job) for job in session.scalars(statement).all()]
+
     def get_sleep_job(self, job_id: int) -> Optional[dict]:
         with self._session_factory() as session:
             job = session.get(LLMJob, job_id)
-            if job is None:
+            if job is None or job.job_type != JobType.SLEEP.value:
                 return None
             return self._job_dict(job)
 

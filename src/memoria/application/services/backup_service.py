@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import zipfile
 from datetime import datetime, timezone
@@ -61,6 +63,32 @@ class BackupService:
                 self.jobs_dir.mkdir(parents=True, exist_ok=True)
         return self.db_path
 
+    def restore_git_backup(self, commit: str) -> Path:
+        if not (self.backup_repo / ".git").exists():
+            raise ValueError(f"backup git repo does not exist: {self.backup_repo}")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            checkout_dir = Path(temp_dir) / "snapshot"
+            checkout_dir.mkdir()
+            archive = self._git_bytes("archive", "--format=tar", commit)
+            with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
+                self._safe_extract_tar(tar, checkout_dir)
+
+            snapshot = self._latest_snapshot(checkout_dir / "snapshots")
+            extracted_db = snapshot / "memoria.db"
+            if extracted_db.exists():
+                self.db_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(extracted_db, self.db_path)
+
+            extracted_jobs = snapshot / "jobs"
+            if self.jobs_dir.exists():
+                shutil.rmtree(self.jobs_dir)
+            if extracted_jobs.exists():
+                shutil.copytree(extracted_jobs, self.jobs_dir)
+            else:
+                self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        return self.db_path
+
     def create_git_backup(self) -> str:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         snapshot_dir = self.backup_repo / "snapshots" / timestamp
@@ -97,6 +125,15 @@ class BackupService:
         )
         return result.stdout.strip()
 
+    def _git_bytes(self, *args: str) -> bytes:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=self.backup_repo,
+            check=True,
+            capture_output=True,
+        )
+        return result.stdout
+
     def _snapshot_db(self, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.db_path) as source:
@@ -112,3 +149,28 @@ class BackupService:
         if root != target and root not in target.parents:
             raise ValueError(f"unsafe archive member {member_name}")
         return target
+
+    @classmethod
+    def _safe_extract_tar(cls, tar: tarfile.TarFile, restore_dir: Path) -> None:
+        for member in tar.getmembers():
+            target = cls._safe_restore_target(restore_dir, member.name)
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                continue
+            source = tar.extractfile(member)
+            if source is None:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with source, target.open("wb") as destination:
+                shutil.copyfileobj(source, destination)
+
+    @staticmethod
+    def _latest_snapshot(snapshots_dir: Path) -> Path:
+        if not snapshots_dir.exists():
+            raise ValueError("git backup does not contain snapshots")
+        snapshots = sorted(path for path in snapshots_dir.iterdir() if path.is_dir())
+        if not snapshots:
+            raise ValueError("git backup does not contain snapshots")
+        return snapshots[-1]

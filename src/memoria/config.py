@@ -52,13 +52,16 @@ def load_config() -> MemoriaConfig:
     config_path = _env_path("MEMORIA_CONFIG", _config_path())
     db_path = _env_path("MEMORIA_DB_PATH", _data_home() / "memoria.db")
     jobs_dir = _env_path("MEMORIA_JOBS_DIR", _data_home() / "jobs")
+    backup_git_repo = _env_path("MEMORIA_BACKUP_GIT_REPO", _data_home() / "backups" / "git")
     llm_model = os.environ.get("MEMORIA_LLM_MODEL", "gpt-5.1")
+    reasoning_summary = os.environ.get("MEMORIA_REASONING_SUMMARY", "auto")
 
     return MemoriaConfig(
         config_path=config_path,
         db_path=db_path,
         jobs_dir=jobs_dir,
-        backup_git_repo=_data_home() / "backups" / "git",
+        backup_git_repo=backup_git_repo,
         logs_dir=_state_home() / "logs",
         llm_model=llm_model,
+        reasoning_summary=reasoning_summary,
     )

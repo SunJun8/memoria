@@ -97,6 +97,8 @@ def test_resolve_proposal_updates_state_and_missing_raises(session_factory):
     resolved = service.resolve_proposal(proposal_id, "accepted")
 
     assert listed[0]["proposal_type"] == "merge_chain"
+    assert service.get_proposal(proposal_id)["reason"] == "same topic"
+    assert service.get_proposal(999) is None
     assert resolved["state"] == "accepted"
     assert resolved["resolved_at"] is not None
     with session_factory() as session:
@@ -155,3 +157,32 @@ def test_query_lists_sleep_reports_and_gets_sleep_job(session_factory):
     assert service.list_sleep_reports()[0]["report_json"] == {"processed": 1}
     assert service.get_sleep_job(job_id)["final_report_json"] == {"mode": "sleep"}
     assert service.get_sleep_job(999) is None
+
+
+def test_query_lists_sleep_jobs_including_failures(session_factory):
+    with session_factory() as session:
+        sleep_job = LLMJob(
+            job_type="sleep_consolidation",
+            status="failed",
+            model="mock-model",
+            reasoning_effort="medium",
+            final_report_json={},
+            error="provider failed",
+        )
+        association_job = LLMJob(
+            job_type="active_association",
+            status="succeeded",
+            model="mock-model",
+            reasoning_effort="medium",
+            final_report_json={},
+        )
+        session.add_all([sleep_job, association_job])
+        session.commit()
+        sleep_job_id = sleep_job.id
+
+    service = QueryService(session_factory)
+
+    jobs = service.list_sleep_jobs()
+    assert [job["id"] for job in jobs] == [sleep_job_id]
+    assert jobs[0]["status"] == "failed"
+    assert jobs[0]["error"] == "provider failed"

@@ -1,23 +1,29 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import Any, Optional
 
 from memoria.schemas.llm import LLMRunResult
 from memoria.schemas.patches import MemoryPatch
 
 
 class OpenAIProvider:
+    MAX_TOOL_LIMIT = 100
+
     def __init__(
         self,
         model: str = "gpt-5.1",
         reasoning_effort: str = "medium",
+        reasoning_summary: str = "auto",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         client: object = None,
+        max_tool_rounds: int = 8,
     ) -> None:
         self.model = model
         self.reasoning_effort = reasoning_effort
+        self.reasoning_summary = reasoning_summary
+        self.max_tool_rounds = max_tool_rounds
         if client is None:
             from openai import OpenAI
 
@@ -37,46 +43,165 @@ class OpenAIProvider:
             strictness=strictness,
             schema=schema,
         )
-        response = self._client.responses.create(
-            model=self.model,
-            input=prompt,
-            reasoning={"effort": self.reasoning_effort, "summary": "auto"},
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "memory_patch",
-                    "schema": schema,
-                    "strict": True,
-                }
-            },
-        )
+        transcript_events = [
+            {
+                "type": "request",
+                "payload": {
+                    "model": self.model,
+                    "reasoning_effort": self.reasoning_effort,
+                    "reasoning_summary": self.reasoning_summary,
+                    "strictness": strictness,
+                    "system_state": system_state,
+                    "tools": "provided" if tools is not None else None,
+                },
+            }
+        ]
+        response = None
+        input_payload: Any = prompt
+        previous_response_id = None
+        for _round in range(self.max_tool_rounds + 1):
+            request = {
+                "model": self.model,
+                "input": input_payload,
+                "reasoning": {
+                    "effort": self.reasoning_effort,
+                    "summary": self.reasoning_summary,
+                },
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "memory_patch",
+                        "schema": schema,
+                        "strict": True,
+                    }
+                },
+            }
+            if previous_response_id is not None:
+                request["previous_response_id"] = previous_response_id
+            if tools is not None:
+                request["tools"] = self._tool_specs()
+
+            response = self._client.responses.create(**request)
+            transcript_events.append({"type": "response", "payload": self._response_payload(response)})
+            tool_calls = self._extract_tool_calls(response)
+            if not tool_calls:
+                break
+
+            input_payload = []
+            for call in tool_calls:
+                transcript_events.append({"type": "tool_call", "payload": call})
+                result = self._run_tool(tools, call)
+                transcript_events.append(
+                    {
+                        "type": "tool_result",
+                        "payload": {
+                            "call_id": call["call_id"],
+                            "name": call["name"],
+                            "result": result,
+                        },
+                    }
+                )
+                input_payload.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": call["call_id"],
+                        "output": json.dumps(result, ensure_ascii=False, default=str),
+                    }
+                )
+            previous_response_id = getattr(response, "id", None)
+        else:
+            raise RuntimeError("OpenAI tool loop exceeded max rounds")
+
+        if response is None:
+            raise RuntimeError("OpenAI provider did not produce a response")
         output_json = self._strip_nulls(json.loads(response.output_text))
         patch = MemoryPatch.model_validate(output_json)
-        response_payload = self._response_payload(response)
         report = {
             "mode": "sleep",
             "strictness": strictness,
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
         }
+        transcript_events.append({"type": "patch", "payload": patch.model_dump(mode="json")})
         return LLMRunResult(
             patch=patch,
             report=report,
-            transcript_events=[
-                {
-                    "type": "request",
-                    "payload": {
-                        "model": self.model,
-                        "reasoning_effort": self.reasoning_effort,
-                        "strictness": strictness,
-                        "system_state": system_state,
-                        "tools": "provided" if tools is not None else None,
-                    },
-                },
-                {"type": "response", "payload": response_payload},
-                {"type": "patch", "payload": patch.model_dump(mode="json")},
-            ],
+            transcript_events=transcript_events,
         )
+
+    def _tool_specs(self) -> list[dict]:
+        nullable_string = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        limit_schema = {"type": "integer", "minimum": 1, "maximum": self.MAX_TOOL_LIMIT}
+        return [
+            {
+                "type": "function",
+                "name": "list_issues",
+                "description": "List existing memory issues for context.",
+                "strict": True,
+                "parameters": self._strict_object(
+                    {"limit": limit_schema, "status": nullable_string}
+                ),
+            },
+            {
+                "type": "function",
+                "name": "search_issues",
+                "description": "Search existing memory issues by title or summary.",
+                "strict": True,
+                "parameters": self._strict_object(
+                    {"query": {"type": "string"}, "limit": limit_schema}
+                ),
+            },
+            {
+                "type": "function",
+                "name": "get_issue",
+                "description": "Read one memory issue by id.",
+                "strict": True,
+                "parameters": self._strict_object({"issue_id": {"type": "integer"}}),
+            },
+            {
+                "type": "function",
+                "name": "list_chains",
+                "description": "List existing memory chains for context.",
+                "strict": True,
+                "parameters": self._strict_object({"limit": limit_schema}),
+            },
+        ]
+
+    def _extract_tool_calls(self, response: object) -> list[dict]:
+        calls = []
+        for item in getattr(response, "output", []) or []:
+            item_type = self._read_attr(item, "type")
+            if item_type != "function_call":
+                continue
+            arguments = self._read_attr(item, "arguments") or "{}"
+            if isinstance(arguments, str):
+                parsed_arguments = json.loads(arguments)
+            else:
+                parsed_arguments = arguments
+            calls.append(
+                {
+                    "call_id": self._read_attr(item, "call_id"),
+                    "name": self._read_attr(item, "name"),
+                    "arguments": parsed_arguments,
+                }
+            )
+        return calls
+
+    def _run_tool(self, tools: object, call: dict) -> dict:
+        allowed_tools = {"list_issues", "search_issues", "get_issue", "list_chains"}
+        name = call["name"]
+        if tools is None or name not in allowed_tools or not hasattr(tools, name):
+            return {"error": f"unavailable tool {name}"}
+        result = getattr(tools, name)(**call["arguments"])
+        if isinstance(result, dict):
+            return result
+        return {"result": result}
+
+    @staticmethod
+    def _read_attr(item: object, name: str) -> Any:
+        if isinstance(item, dict):
+            return item.get(name)
+        return getattr(item, name, None)
 
     def _build_prompt(self, *, system_state: dict, strictness: str, schema: dict) -> str:
         return "\n\n".join(

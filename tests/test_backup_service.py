@@ -72,6 +72,34 @@ def test_backup_create_git_commit(tmp_path):
     assert (repo / ".git").exists()
 
 
+def test_backup_restore_from_git_commit_to_configured_paths(tmp_path):
+    db_path = tmp_path / "memoria.db"
+    engine = create_engine_for_path(db_path)
+    init_db(engine)
+    session_factory = create_session_factory(engine)
+    IngestService(session_factory).ingest(IngestRequest(content="git restore me", source="text"))
+    jobs_dir = tmp_path / "jobs"
+    jobs_dir.mkdir()
+    (jobs_dir / "job.jsonl").write_text('{"type":"job"}\n', encoding="utf-8")
+    repo = tmp_path / "backup-git"
+    service = BackupService(db_path=db_path, jobs_dir=jobs_dir, backup_repo=repo)
+    commit = service.create_git_backup()
+
+    db_path.unlink()
+    for path in jobs_dir.iterdir():
+        path.unlink()
+
+    restored_db = service.restore_git_backup(commit)
+
+    assert restored_db == db_path
+    assert (jobs_dir / "job.jsonl").read_text(encoding="utf-8") == '{"type":"job"}\n'
+    restored_engine = create_engine_for_path(db_path)
+    restored_session_factory = create_session_factory(restored_engine)
+    with restored_session_factory() as session:
+        raw = session.scalars(select(RawEntry)).one()
+    assert raw.content == "git restore me"
+
+
 def test_backup_cli_create_and_restore_use_config_paths(monkeypatch, tmp_path):
     db_path = tmp_path / "dbdir" / "memoria.db"
     jobs_dir = tmp_path / "custom-jobs"
@@ -105,6 +133,32 @@ def test_backup_cli_create_and_restore_use_config_paths(monkeypatch, tmp_path):
     with session_factory() as session:
         raw = session.scalars(select(RawEntry)).one()
     assert raw.content == "backup cli"
+
+
+def test_backup_cli_restore_git_commit(monkeypatch, tmp_path):
+    db_path = tmp_path / "dbdir" / "memoria.db"
+    jobs_dir = tmp_path / "jobs"
+    backup_repo = tmp_path / "git"
+    monkeypatch.setenv("MEMORIA_DB_PATH", str(db_path))
+    monkeypatch.setenv("MEMORIA_JOBS_DIR", str(jobs_dir))
+    monkeypatch.setenv("MEMORIA_BACKUP_GIT_REPO", str(backup_repo))
+    runner = CliRunner()
+
+    assert runner.invoke(app, ["ingest", "text", "git cli restore"]).exit_code == 0
+    create_result = runner.invoke(app, ["backup", "create", "--git"])
+    assert create_result.exit_code == 0
+    commit = json.loads(create_result.stdout)["commit"]
+    db_path.unlink()
+
+    restore_result = runner.invoke(app, ["backup", "restore-git", commit])
+
+    assert restore_result.exit_code == 0
+    assert json.loads(restore_result.stdout)["restored_db"] == str(db_path)
+    engine = create_engine_for_path(db_path)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        raw = session.scalars(select(RawEntry)).one()
+    assert raw.content == "git cli restore"
 
 
 def test_backup_restore_to_configured_paths_clears_jobs_when_snapshot_has_none(tmp_path):

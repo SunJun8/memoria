@@ -1,4 +1,6 @@
 from sqlalchemy import inspect, select
+from alembic import command
+from alembic.config import Config
 
 from memoria.infrastructure.db.models import RawEntry
 from memoria.infrastructure.db.session import create_engine_for_path, create_session_factory, init_db
@@ -25,6 +27,24 @@ def test_initial_schema_creates_core_tables(tmp_path):
         "sleep_reports",
         "attachments",
         "import_audits",
+    }.issubset(table_names)
+
+
+def test_alembic_upgrade_head_creates_core_tables(tmp_path):
+    db_path = tmp_path / "alembic.db"
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+
+    command.upgrade(config, "head")
+
+    engine = create_engine_for_path(db_path)
+    table_names = set(inspect(engine).get_table_names())
+    assert {
+        "raw_entries",
+        "memory_issues",
+        "patch_records",
+        "llm_jobs",
+        "sleep_reports",
     }.issubset(table_names)
 
 

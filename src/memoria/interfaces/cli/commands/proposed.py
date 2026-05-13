@@ -22,6 +22,14 @@ def list_proposed(json_output: bool = typer.Option(False, "--json")):
     print_result(_query_service().list_proposals(), as_json=json_output)
 
 
+@app.command("show")
+def show_proposed(proposal_id: int, json_output: bool = typer.Option(False, "--json")):
+    proposal = _query_service().get_proposal(proposal_id)
+    if proposal is None:
+        raise typer.BadParameter(f"missing proposal {proposal_id}")
+    print_result(proposal, as_json=json_output)
+
+
 @app.command("accept")
 def accept_proposed(proposal_id: int, json_output: bool = typer.Option(False, "--json")):
     print_result(_query_service().resolve_proposal(proposal_id, "accepted"), as_json=json_output)

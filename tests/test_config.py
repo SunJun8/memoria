@@ -23,15 +23,19 @@ def test_env_overrides_db_and_model(monkeypatch, tmp_path):
     monkeypatch.setenv("MEMORIA_CONFIG", str(tmp_path / "config.toml"))
     monkeypatch.setenv("MEMORIA_DB_PATH", str(tmp_path / "custom.db"))
     monkeypatch.setenv("MEMORIA_JOBS_DIR", str(tmp_path / "custom-jobs"))
+    monkeypatch.setenv("MEMORIA_BACKUP_GIT_REPO", str(tmp_path / "custom-git"))
     monkeypatch.setenv("MEMORIA_LLM_MODEL", "gpt-test-model")
+    monkeypatch.setenv("MEMORIA_REASONING_SUMMARY", "detailed")
 
     config = load_config()
 
     assert config.config_path == tmp_path / "config.toml"
     assert config.db_path == tmp_path / "custom.db"
     assert config.jobs_dir == tmp_path / "custom-jobs"
+    assert config.backup_git_repo == tmp_path / "custom-git"
     assert config.llm_model == "gpt-test-model"
     assert config.reasoning_effort == "medium"
+    assert config.reasoning_summary == "detailed"
 
 
 def test_empty_path_env_values_fall_back_to_xdg(monkeypatch, tmp_path):

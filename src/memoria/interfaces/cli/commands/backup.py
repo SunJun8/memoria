@@ -48,3 +48,9 @@ def restore_backup(archive: Path, restore_dir: Optional[Path] = typer.Argument(N
         else service.restore_to_configured_paths(archive)
     )
     print_result({"restored_db": restored_db})
+
+
+@app.command("restore-git")
+def restore_git_backup(commit: str):
+    restored_db = _service().restore_git_backup(commit)
+    print_result({"restored_db": restored_db})

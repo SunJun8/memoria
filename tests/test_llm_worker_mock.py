@@ -7,6 +7,7 @@ from memoria.application.services.association_service import AssociationService
 from memoria.application.services.patch_service import PatchService
 from memoria.application.services.query_service import QueryService
 from memoria.application.services.sleep_service import SleepService
+from memoria.application.services.llm_tool_service import LLMToolService
 from memoria.infrastructure.db.models import LLMJob, MemoryIssue, RawEntry, SleepReport
 from memoria.infrastructure.llm.mock_provider import MockLLMProvider
 from memoria.infrastructure.transcript.jsonl_store import JsonlTranscriptStore
@@ -116,6 +117,36 @@ def test_sleep_finalize_failure_rolls_back_patch(session_factory, tmp_path):
     assert reports == []
 
 
+def test_sleep_after_success_failure_does_not_mark_job_failed(session_factory, tmp_path):
+    IngestService(session_factory).ingest(
+        IngestRequest(content="Build Memoria MVP", source="text")
+    )
+    sleep = SleepService(
+        session_factory=session_factory,
+        query_service=QueryService(session_factory),
+        patch_service=PatchService(session_factory),
+        llm_provider=MockLLMProvider(),
+        transcript_store=JsonlTranscriptStore(tmp_path),
+        model="mock-model",
+        reasoning_effort="medium",
+        after_success_hook=lambda: (_ for _ in ()).throw(RuntimeError("backup failed")),
+    )
+
+    try:
+        sleep.run(limit=10, strictness="balanced")
+    except RuntimeError as exc:
+        assert "backup failed" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+    with session_factory() as session:
+        job = session.scalars(select(LLMJob)).one()
+        issues = session.scalars(select(MemoryIssue)).all()
+
+    assert job.status == "succeeded"
+    assert issues[0].title == "Mock consolidated memory"
+
+
 def test_association_service_records_association_job_type(session_factory, tmp_path):
     IngestService(session_factory).ingest(
         IngestRequest(content="Connect related memories", source="text")
@@ -136,3 +167,16 @@ def test_association_service_records_association_job_type(session_factory, tmp_p
         job = session.get(LLMJob, job_id)
 
     assert job.job_type == "active_association"
+
+
+def test_llm_tool_service_clamps_limits(session_factory):
+    for index in range(3):
+        IngestService(session_factory).ingest(
+            IngestRequest(content=f"memory {index}", source="text")
+        )
+    service = LLMToolService(session_factory)
+
+    state = service.get_system_state(9999)
+
+    assert len(state["pending_raw"]) == 3
+    assert service.list_issues(limit=-5) == {"issues": []}

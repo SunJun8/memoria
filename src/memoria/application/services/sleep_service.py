@@ -27,6 +27,7 @@ class SleepService:
         model: str,
         reasoning_effort: str,
         finalize_hook: Optional[Callable[[], None]] = None,
+        after_success_hook: Optional[Callable[[], None]] = None,
     ) -> None:
         self._session_factory = session_factory
         self._query_service = query_service
@@ -37,44 +38,51 @@ class SleepService:
         self._reasoning_effort = reasoning_effort
         self._tools = LLMToolService(session_factory)
         self._finalize_hook = finalize_hook
+        self._after_success_hook = after_success_hook
 
     def run(self, limit: int, strictness: str) -> int:
         job_id = self._create_job(strictness)
         try:
-            system_state = self._tools.get_system_state(limit)
-            result = self._llm_provider.run_memory_job(
-                system_state=system_state,
-                tools=self._tools,
-                strictness=strictness,
-            )
-            transcript = self._transcript_store.write(
-                f"llm-job-{job_id}",
-                result.transcript_events,
-            )
-            with self._session_factory() as session:
-                try:
-                    result.patch.job_id = job_id
-                    patch_id = self._patch_service.apply_patch_in_session(session, result.patch)
-                    job = session.get(LLMJob, job_id)
-                    if job is None:
-                        raise ValueError(f"missing job {job_id}")
-                    job.status = JobStatus.SUCCEEDED.value
-                    job.patch_id = patch_id
-                    job.transcript_path = str(transcript.path)
-                    job.transcript_sha256 = transcript.sha256
-                    job.final_report_json = result.report
-                    job.completed_at = utcnow()
-                    session.add(SleepReport(job_id=job_id, report_json=result.report))
-                    if self._finalize_hook is not None:
-                        self._finalize_hook()
-                    session.commit()
-                except Exception:
-                    session.rollback()
-                    raise
-            return job_id
+            self._run_and_commit_job(job_id, limit, strictness)
         except Exception as exc:
             self._mark_failed(job_id, exc)
             raise
+
+        if self._after_success_hook is not None:
+            self._after_success_hook()
+        return job_id
+
+    def _run_and_commit_job(self, job_id: int, limit: int, strictness: str) -> None:
+        system_state = self._tools.get_system_state(limit)
+        result = self._llm_provider.run_memory_job(
+            system_state=system_state,
+            tools=self._tools,
+            strictness=strictness,
+        )
+        transcript = self._transcript_store.write(
+            f"llm-job-{job_id}",
+            result.transcript_events,
+        )
+        with self._session_factory() as session:
+            try:
+                result.patch.job_id = job_id
+                patch_id = self._patch_service.apply_patch_in_session(session, result.patch)
+                job = session.get(LLMJob, job_id)
+                if job is None:
+                    raise ValueError(f"missing job {job_id}")
+                job.status = JobStatus.SUCCEEDED.value
+                job.patch_id = patch_id
+                job.transcript_path = str(transcript.path)
+                job.transcript_sha256 = transcript.sha256
+                job.final_report_json = result.report
+                job.completed_at = utcnow()
+                session.add(SleepReport(job_id=job_id, report_json=result.report))
+                if self._finalize_hook is not None:
+                    self._finalize_hook()
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
 
     def _create_job(self, strictness: str) -> int:
         with self._session_factory() as session:

@@ -87,6 +87,7 @@ def test_openai_provider_sends_reasoning_and_strict_schema_to_client():
     provider = OpenAIProvider(
         model="gpt-test",
         reasoning_effort="medium",
+        reasoning_summary="detailed",
         client=client,
     )
 
@@ -98,7 +99,9 @@ def test_openai_provider_sends_reasoning_and_strict_schema_to_client():
 
     request = client.responses.kwargs
     assert request["model"] == "gpt-test"
-    assert request["reasoning"] == {"effort": "medium", "summary": "auto"}
+    assert request["reasoning"] == {"effort": "medium", "summary": "detailed"}
+    assert all(tool["strict"] is True for tool in request["tools"])
+    assert request["tools"][0]["parameters"]["properties"]["limit"]["maximum"] == 100
     assert request["text"]["format"]["type"] == "json_schema"
     assert request["text"]["format"]["strict"] is True
     _assert_openai_strict_objects(request["text"]["format"]["schema"])
@@ -119,6 +122,82 @@ def test_openai_provider_sends_reasoning_and_strict_schema_to_client():
     assert result.patch.operations[0].payload["title"] == "Fake issue"
     assert "job_id" not in result.patch.operations[0].model_dump(exclude_none=True)
     assert result.transcript_events[0]["payload"]["tools"] == "provided"
+
+
+class FakeToolCall:
+    type = "function_call"
+    call_id = "call-1"
+    name = "list_issues"
+    arguments = json.dumps({"limit": 5})
+
+    def model_dump(self, mode):
+        return {
+            "type": self.type,
+            "call_id": self.call_id,
+            "name": self.name,
+            "arguments": self.arguments,
+            "mode": mode,
+        }
+
+
+class FakeToolCallResponse:
+    output_text = ""
+    output = [FakeToolCall()]
+    id = "response-1"
+
+    def model_dump(self, mode):
+        return {"output": [item.model_dump(mode) for item in self.output], "mode": mode}
+
+
+class FakeToolResponses:
+    def __init__(self):
+        self.requests = []
+
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
+        if len(self.requests) == 1:
+            return FakeToolCallResponse()
+        return FakeResponse()
+
+
+class FakeToolClient:
+    def __init__(self):
+        self.responses = FakeToolResponses()
+
+
+class FakeTools:
+    def __init__(self):
+        self.calls = []
+
+    def list_issues(self, limit=20):
+        self.calls.append(("list_issues", limit))
+        return {"issues": [{"id": 1, "title": "Existing issue"}]}
+
+
+def test_openai_provider_runs_tool_loop_before_final_patch():
+    client = FakeToolClient()
+    tools = FakeTools()
+    provider = OpenAIProvider(
+        model="gpt-test",
+        reasoning_effort="medium",
+        client=client,
+        max_tool_rounds=3,
+    )
+
+    result = provider.run_memory_job(
+        system_state={"pending_raw": [{"id": 1, "content": "Test memory"}]},
+        tools=tools,
+        strictness="balanced",
+    )
+
+    assert tools.calls == [("list_issues", 5)]
+    assert len(client.responses.requests) == 2
+    followup_input = client.responses.requests[1]["input"]
+    assert followup_input[0]["type"] == "function_call_output"
+    assert followup_input[0]["call_id"] == "call-1"
+    assert "Existing issue" in followup_input[0]["output"]
+    assert result.patch.operations[0].payload["title"] == "Fake issue"
+    assert [event["type"] for event in result.transcript_events].count("tool_result") == 1
 
 
 @pytest.mark.openai_live
