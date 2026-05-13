@@ -27,36 +27,39 @@ class PatchService:
         self._session_factory = session_factory
 
     def apply_patch(self, patch: MemoryPatch) -> int:
-        before_json = self._before_json(patch)
-        after_json = self._empty_after_json()
-
         with self._session_factory() as session:
             try:
-                for operation in patch.operations:
-                    self._apply_operation(session, operation, after_json)
-
-                record = PatchRecord(
-                    actor=patch.actor,
-                    source=patch.source,
-                    patch_json=patch.model_dump(mode="json"),
-                    before_json=before_json,
-                    after_json=after_json,
-                )
-                session.add(record)
-                session.flush()
-
-                if patch.job_id is not None:
-                    job = session.get(LLMJob, patch.job_id)
-                    if job is None:
-                        raise ValueError(f"missing job {patch.job_id}")
-                    job.patch_id = record.id
-
-                patch_id = record.id
+                patch_id = self.apply_patch_in_session(session, patch)
                 session.commit()
                 return patch_id
             except Exception:
                 session.rollback()
                 raise
+
+    def apply_patch_in_session(self, session: Session, patch: MemoryPatch) -> int:
+        before_json = self._before_json(patch)
+        after_json = self._empty_after_json()
+
+        for operation in patch.operations:
+            self._apply_operation(session, operation, after_json)
+
+        record = PatchRecord(
+            actor=patch.actor,
+            source=patch.source,
+            patch_json=patch.model_dump(mode="json"),
+            before_json=before_json,
+            after_json=after_json,
+        )
+        session.add(record)
+        session.flush()
+
+        if patch.job_id is not None:
+            job = session.get(LLMJob, patch.job_id)
+            if job is None:
+                raise ValueError(f"missing job {patch.job_id}")
+            job.patch_id = record.id
+
+        return record.id
 
     def apply_operation_dict(self, operation_dict: dict[str, Any]) -> dict[str, list[int]]:
         operation_type = operation_dict.get("operation_type")
