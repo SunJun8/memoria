@@ -38,6 +38,71 @@ def test_env_overrides_db_and_model(monkeypatch, tmp_path):
     assert config.reasoning_summary == "detailed"
 
 
+def test_config_file_overrides_openai_settings(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[openai]
+model = "gpt-custom"
+base_url = "https://openai-compatible.example/v1"
+reasoning_effort = "high"
+reasoning_summary = "detailed"
+api_key_env = "MEMORIA_OPENAI_API_KEY"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MEMORIA_CONFIG", str(config_path))
+    monkeypatch.delenv("MEMORIA_LLM_MODEL", raising=False)
+    monkeypatch.delenv("MEMORIA_REASONING_SUMMARY", raising=False)
+
+    config = load_config()
+
+    assert config.llm_model == "gpt-custom"
+    assert config.openai_base_url == "https://openai-compatible.example/v1"
+    assert config.reasoning_effort == "high"
+    assert config.reasoning_summary == "detailed"
+    assert config.api_key_env == "MEMORIA_OPENAI_API_KEY"
+
+
+def test_env_overrides_config_file_openai_model(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[openai]
+model = "gpt-from-file"
+reasoning_summary = "auto"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MEMORIA_CONFIG", str(config_path))
+    monkeypatch.setenv("MEMORIA_LLM_MODEL", "gpt-from-env")
+    monkeypatch.setenv("MEMORIA_REASONING_SUMMARY", "detailed")
+
+    config = load_config()
+
+    assert config.llm_model == "gpt-from-env"
+    assert config.reasoning_summary == "detailed"
+
+
+def test_config_rejects_api_key_in_api_key_env(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[openai]
+api_key_env = "sk-test"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MEMORIA_CONFIG", str(config_path))
+
+    try:
+        load_config()
+    except ValueError as exc:
+        assert "api_key_env" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
 def test_empty_path_env_values_fall_back_to_xdg(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))

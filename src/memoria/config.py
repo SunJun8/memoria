@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,6 +16,11 @@ def _env_path(env_name: str, fallback: Path) -> Path:
     return Path(value).expanduser() if value else fallback
 
 
+def _env_str(env_name: str, fallback: str | None) -> str | None:
+    value = os.environ.get(env_name)
+    return value if value else fallback
+
+
 def _config_path() -> Path:
     return _xdg_path("XDG_CONFIG_HOME", Path.home() / ".config") / "memoria" / "config.toml"
 
@@ -25,6 +31,20 @@ def _data_home() -> Path:
 
 def _state_home() -> Path:
     return _xdg_path("XDG_STATE_HOME", Path.home() / ".local" / "state") / "memoria"
+
+
+def _read_config_file(config_path: Path) -> dict:
+    if not config_path.exists():
+        return {}
+    with config_path.open("rb") as config_file:
+        return tomllib.load(config_file)
+
+
+def _api_key_env(value: str | None) -> str:
+    name = value or "OPENAI_API_KEY"
+    if name.startswith("sk-"):
+        raise ValueError("openai.api_key_env must be an environment variable name, not an API key")
+    return name
 
 
 @dataclass(frozen=True)
@@ -50,11 +70,23 @@ class MemoriaConfig:
 
 def load_config() -> MemoriaConfig:
     config_path = _env_path("MEMORIA_CONFIG", _config_path())
+    file_config = _read_config_file(config_path)
+    openai_config = file_config.get("openai", {})
+
     db_path = _env_path("MEMORIA_DB_PATH", _data_home() / "memoria.db")
     jobs_dir = _env_path("MEMORIA_JOBS_DIR", _data_home() / "jobs")
     backup_git_repo = _env_path("MEMORIA_BACKUP_GIT_REPO", _data_home() / "backups" / "git")
-    llm_model = os.environ.get("MEMORIA_LLM_MODEL", "gpt-5.1")
-    reasoning_summary = os.environ.get("MEMORIA_REASONING_SUMMARY", "auto")
+    llm_model = _env_str("MEMORIA_LLM_MODEL", openai_config.get("model", "gpt-5.1"))
+    reasoning_effort = _env_str(
+        "MEMORIA_REASONING_EFFORT",
+        openai_config.get("reasoning_effort", "medium"),
+    )
+    reasoning_summary = _env_str(
+        "MEMORIA_REASONING_SUMMARY",
+        openai_config.get("reasoning_summary", "auto"),
+    )
+    api_key_env = _api_key_env(_env_str("MEMORIA_OPENAI_API_KEY_ENV", openai_config.get("api_key_env")))
+    openai_base_url = _env_str("MEMORIA_OPENAI_BASE_URL", openai_config.get("base_url"))
 
     return MemoriaConfig(
         config_path=config_path,
@@ -63,5 +95,8 @@ def load_config() -> MemoriaConfig:
         backup_git_repo=backup_git_repo,
         logs_dir=_state_home() / "logs",
         llm_model=llm_model,
+        reasoning_effort=reasoning_effort,
         reasoning_summary=reasoning_summary,
+        api_key_env=api_key_env,
+        openai_base_url=openai_base_url,
     )

@@ -114,6 +114,7 @@ def test_cli_sleep_without_api_key_fails_before_db_init(monkeypatch, tmp_path):
     db_path = tmp_path / "no-key.db"
     monkeypatch.setenv("MEMORIA_DB_PATH", str(db_path))
     monkeypatch.setenv("MEMORIA_JOBS_DIR", str(tmp_path / "jobs"))
+    monkeypatch.setenv("MEMORIA_CONFIG", str(tmp_path / "config.toml"))
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     runner = CliRunner()
 
