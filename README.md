@@ -2,45 +2,38 @@
 
 Memoria 是一个本地优先、由 LLM 驱动的工作记忆归档器。
 
-它的核心目标不是做一个聊天机器人，而是把日常输入的原始信息整理成可长期保存、可被 Agent 检索和更新的结构化记忆。当前 MVP 以 CLI 为主，支持导入原始记忆、运行“睡眠整理”、查询 Memory Issue / Chain / Proposal，并把数据库和 LLM 作业 transcript 保存在本地。
+它把日常输入的原始信息整理成可长期保存、可被 Agent 检索和更新的结构化记忆。当前 0.1.0 版本以 CLI 为主，支持导入原始记忆、运行“睡眠整理”、查询 Memory Issue / Chain / Proposal，并把 SQLite 数据库和 LLM 作业 transcript 保存在本机。
 
-## 背景
+## 安装
 
-人在工作和生活中会不断接收碎片信息：任务、问题、决策、调试过程、项目上下文、临时想法、生活流水账。这些信息如果只留在聊天记录、终端历史或笔记里，后续很难被系统性地回忆和串联。
+Memoria 0.1.0 支持 Python 3.11 及以上。
 
-Memoria 的设计借用了几个认知隐喻：
-
-- **原始记忆**：用户或外部 Agent 直接丢进来的原始内容，默认尽量完整保留。
-- **Memory Issue**：表示一个任务、问题或持续关注的主题，类似 Jira issue，有标题、状态、标签、摘要和评论。
-- **Memory Chain**：表示一条思维链或关联链，由 LLM 自主组织，可随时间合并、调整、重组。
-- **睡眠整理**：系统主动调用 LLM，对待处理的原始记忆做抽取、归纳、链接和状态更新。
-- **主动联想**：后续可以扩展为由 LLM 主动检索相关 issue / chain，发现新的关联。
-
-当前版本坚持几个边界：
-
-- 默认全本地：SQLite 数据库、transcript、备份都在本机。
-- 不做 Web UI、API server、MCP server。
-- 不提供自然语言问答入口；Codex、Claude Code 等外部 Agent 后续通过 CLI/API 访问。
-- LLM provider 直接使用 OpenAI Python SDK，不引入 LangChain / LangGraph。
-- 不支持删除记忆；旧记忆可以被新记忆纠正、补充或降权。
-- Git 只作为本地备份机制，不 push。
-
-## Quickstart
-
-### 1. 安装开发环境
+推荐使用 `uv tool install`。`uv` 会为命令行工具创建隔离环境，不绑定当前项目目录或当前 shell 里的虚拟环境：
 
 ```bash
-cd /home/miot/Work/memoria
-python -m pip install -e ".[dev]"
+uv tool install memoria
+memoria --help
 ```
 
-如果只想在源码目录直接运行，也可以使用：
+也可以使用 pip 安装；这种方式要求当前 Python 环境已经是 3.11 及以上：
 
 ```bash
-PYTHONPATH=src python -m memoria.interfaces.cli.app --help
+python -m pip install memoria
+memoria --help
 ```
 
-### 2. 导入一条原始记忆
+如果使用二进制发布包，可以下载对应平台的 `memoria` 可执行文件后直接运行，不需要预装 Python：
+
+```bash
+chmod +x memoria-linux-x86_64
+./memoria-linux-x86_64 --help
+```
+
+二进制文件按操作系统和 CPU 架构分别构建。当前版本的本地 Git 备份功能仍会调用系统 `git` 命令，因此使用 `memoria backup create --git` 或默认 sleep 后 Git 备份时，机器上仍需要有 `git`。
+
+## 快速开始
+
+### 1. 导入一条原始记忆
 
 ```bash
 memoria ingest text "今天讨论了 Memoria MVP：先做本地 CLI，不做 Web UI。LLM 用 OpenAI SDK 直接实现。" \
@@ -55,7 +48,7 @@ memoria ingest text "今天讨论了 Memoria MVP：先做本地 CLI，不做 Web
 {"raw_entry_id": 1}
 ```
 
-### 3. 离线运行一次睡眠整理
+### 2. 离线运行一次睡眠整理
 
 ```bash
 memoria sleep --mock
@@ -69,7 +62,7 @@ memoria sleep --mock
 {"job_id": 1}
 ```
 
-### 4. 查看整理出的记忆
+### 3. 查看整理出的记忆
 
 ```bash
 memoria issue list --json
@@ -78,7 +71,7 @@ memoria chain list --json
 memoria sleep list --json
 ```
 
-### 5. 使用 OpenAI 运行真实整理
+### 4. 使用 OpenAI 运行真实整理
 
 ```bash
 export OPENAI_API_KEY="..."
@@ -143,12 +136,6 @@ api_key_env = "OPENAI_API_KEY"
 ```
 
 然后在 shell 里设置 `OPENAI_API_KEY`。
-
-OpenAI live test 默认不会强制执行。只有设置下面变量时，测试才要求真实调用 OpenAI：
-
-```bash
-export MEMORIA_REQUIRE_OPENAI_LIVE=1
-```
 
 环境变量仍可作为临时覆盖：
 
@@ -303,7 +290,41 @@ Memoria 会保存两类数据：
 
 保存 transcript 的目的是让 LLM 整理过程可回放、可审计、可调试。后续可以增加保留天数和关闭开关。
 
-## 开发和验证
+## 设计边界
+
+当前版本坚持几个边界：
+
+- 默认全本地：SQLite 数据库、transcript、备份都在本机。
+- 不做 Web UI、API server、MCP server。
+- 不提供自然语言问答入口；Codex、Claude Code 等外部 Agent 后续通过 CLI/API 访问。
+- LLM provider 直接使用 OpenAI Python SDK，不引入 LangChain / LangGraph。
+- 不支持删除记忆；旧记忆可以被新记忆纠正、补充或降权。
+- Git 只作为本地备份机制，不 push。
+
+Memoria 的设计借用了几个认知隐喻：
+
+- **原始记忆**：用户或外部 Agent 直接丢进来的原始内容，默认尽量完整保留。
+- **Memory Issue**：表示一个任务、问题或持续关注的主题，类似 Jira issue，有标题、状态、标签、摘要和评论。
+- **Memory Chain**：表示一条思维链或关联链，由 LLM 自主组织，可随时间合并、调整、重组。
+- **睡眠整理**：系统主动调用 LLM，对待处理的原始记忆做抽取、归纳、链接和状态更新。
+- **主动联想**：后续可以扩展为由 LLM 主动检索相关 issue / chain，发现新的关联。
+
+## 开发者说明
+
+### 本地开发安装
+
+```bash
+cd /home/miot/Work/memoria
+python -m pip install -e ".[dev]"
+```
+
+源码目录直接运行：
+
+```bash
+PYTHONPATH=src python -m memoria --help
+```
+
+### 测试和检查
 
 运行测试：
 
@@ -321,6 +342,33 @@ python -m compileall -q src tests
 
 ```bash
 git diff --check
+```
+
+### 打包
+
+构建 PyPI wheel 和 sdist：
+
+```bash
+uv build
+```
+
+从本地 wheel 验证隔离安装：
+
+```bash
+uv tool install --python 3.11 dist/memoria-0.1.0-py3-none-any.whl
+memoria --help
+```
+
+构建 Linux x86_64 单文件二进制：
+
+```bash
+uv run --extra binary pyinstaller --onefile --name memoria-linux-x86_64 --clean src/memoria/__main__.py
+```
+
+发布到 PyPI：
+
+```bash
+uv publish dist/memoria-0.1.0-py3-none-any.whl dist/memoria-0.1.0.tar.gz
 ```
 
 ## 当前 MVP 范围
