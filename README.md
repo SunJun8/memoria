@@ -11,14 +11,14 @@ Memoria 0.1.0 支持 Python 3.11 及以上。
 推荐使用 `uv tool install`。`uv` 会为命令行工具创建隔离环境，不绑定当前项目目录或当前 shell 里的虚拟环境：
 
 ```bash
-uv tool install memoria
+uv tool install memoria-cli
 memoria --help
 ```
 
 也可以使用 pip 安装；这种方式要求当前 Python 环境已经是 3.11 及以上：
 
 ```bash
-python -m pip install memoria
+python -m pip install memoria-cli
 memoria --help
 ```
 
@@ -355,7 +355,7 @@ uv build
 从本地 wheel 验证隔离安装：
 
 ```bash
-uv tool install --python 3.11 dist/memoria-0.1.0-py3-none-any.whl
+uv tool install --python 3.11 dist/memoria_cli-0.1.0-py3-none-any.whl
 memoria --help
 ```
 
@@ -368,7 +368,7 @@ uv run --extra binary pyinstaller --onefile --name memoria-linux-x86_64 --clean 
 发布到 PyPI：
 
 ```bash
-uv publish dist/memoria-0.1.0-py3-none-any.whl dist/memoria-0.1.0.tar.gz
+uv publish dist/memoria_cli-0.1.0-py3-none-any.whl dist/memoria_cli-0.1.0.tar.gz
 ```
 
 ## 当前 MVP 范围

@@ -1,5 +1,5 @@
 [project]
-name = "memoria"
+name = "memoria-cli"
 version = "0.1.0"
 description = "Local-first LLM-driven memory system"
 readme = "README.md"
