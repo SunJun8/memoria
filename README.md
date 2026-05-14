@@ -2,11 +2,11 @@
 
 Memoria 是一个本地优先、由 LLM 驱动的工作记忆归档器。
 
-它把日常输入的原始信息整理成可长期保存、可被 Agent 检索和更新的结构化记忆。当前 0.1.1 版本以 CLI 为主，支持导入原始记忆、运行“睡眠整理”、查询 Memory Issue / Chain / Proposal，并把 SQLite 数据库和 LLM 作业 transcript 保存在本机。
+它把日常输入的原始信息整理成可长期保存、可被 Agent 检索和更新的结构化记忆。当前 0.1.2 版本以 CLI 为主，支持导入原始记忆、运行“睡眠整理”、查询 Memory Issue / Chain / Proposal，并把 SQLite 数据库和 LLM 作业 transcript 保存在本机。
 
 ## 安装
 
-Memoria 0.1.1 支持 Python 3.11 及以上。
+Memoria 0.1.2 支持 Python 3.11 及以上。
 
 推荐使用 `uv tool install`。`uv` 会为命令行工具创建隔离环境，不绑定当前项目目录或当前 shell 里的虚拟环境：
 
@@ -355,7 +355,7 @@ uv build
 从本地 wheel 验证隔离安装：
 
 ```bash
-uv tool install --python 3.11 dist/memoria_cli-0.1.1-py3-none-any.whl
+uv tool install --python 3.11 dist/memoria_cli-0.1.2-py3-none-any.whl
 memoria --help
 ```
 
@@ -368,7 +368,7 @@ uv run --extra binary pyinstaller --onefile --name memoria-linux-x86_64 --clean 
 发布到 PyPI：
 
 ```bash
-uv publish dist/memoria_cli-0.1.1-py3-none-any.whl dist/memoria_cli-0.1.1.tar.gz
+uv publish dist/memoria_cli-0.1.2-py3-none-any.whl dist/memoria_cli-0.1.2.tar.gz
 ```
 
 ## 当前 MVP 范围

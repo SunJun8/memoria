@@ -205,7 +205,6 @@ jobs:
     needs:
       - validate-release
       - build-package
-      - build-binaries
     if: github.event_name == 'push' || inputs.publish_pypi
     environment:
       name: pypi
@@ -241,6 +240,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: release-downloads
+          pattern: memoria-*
 
       - name: Collect release assets
         shell: bash
