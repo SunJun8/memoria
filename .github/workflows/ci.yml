@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feat/**
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Compile Python sources
+        run: uv run python -m compileall -q src tests
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  validate-manifests:
+    name: Validate manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate JSON manifests
+        run: |
+          python -m json.tool .codex-plugin/plugin.json >/dev/null
+          python -m json.tool .claude-plugin/plugin.json >/dev/null
+          python -m json.tool .agents/plugins/marketplace.json >/dev/null
+          python -m json.tool .claude-plugin/marketplace.json >/dev/null
+
+      - name: Validate skill metadata
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path("skills/memoria/SKILL.md").read_text(encoding="utf-8")
+          if not text.startswith("---\n"):
+              raise SystemExit("SKILL.md missing YAML frontmatter")
+          frontmatter = text.split("---", 2)[1]
+          for field in ("name: memoria", "description:"):
+              if field not in frontmatter:
+                  raise SystemExit(f"SKILL.md missing {field}")
+          openai = Path("skills/memoria/agents/openai.yaml").read_text(encoding="utf-8")
+          for field in ("display_name:", "short_description:", "default_prompt:"):
+              if field not in openai:
+                  raise SystemExit(f"openai.yaml missing {field}")
+          PY
+
+  build-package:
+    name: Build package
+    runs-on: ubuntu-latest
+    needs:
+      - test
+      - validate-manifests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Smoke test wheel install
+        run: |
+          python -m venv /tmp/memoria-wheel-smoke
+          /tmp/memoria-wheel-smoke/bin/python -m pip install --upgrade pip
+          /tmp/memoria-wheel-smoke/bin/python -m pip install dist/*.whl
+          /tmp/memoria-wheel-smoke/bin/memoria --help
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package
+          path: dist/*

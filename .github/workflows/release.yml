@@ -1,0 +1,261 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, for example 0.1.1 or v0.1.1"
+        required: true
+        type: string
+      publish_pypi:
+        description: "Publish the Python package to PyPI"
+        required: true
+        default: true
+        type: boolean
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-release:
+    name: Validate release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#v}"
+          else
+            input="${{ inputs.version }}"
+            version="${input#v}"
+            tag="v${version}"
+          fi
+          project_version="$(python - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as fh:
+              print(tomllib.load(fh)["project"]["version"])
+          PY
+          )"
+          if [[ "${version}" != "${project_version}" ]]; then
+            echo "Requested version ${version} does not match pyproject.toml ${project_version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    needs: validate-release
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Compile Python sources
+        run: uv run python -m compileall -q src tests
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  build-package:
+    name: Build Python package
+    runs-on: ubuntu-latest
+    needs:
+      - validate-release
+      - test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Smoke test wheel install
+        run: |
+          python -m venv /tmp/memoria-wheel-smoke
+          /tmp/memoria-wheel-smoke/bin/python -m pip install --upgrade pip
+          /tmp/memoria-wheel-smoke/bin/python -m pip install dist/*.whl
+          /tmp/memoria-wheel-smoke/bin/memoria --help
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package
+          path: dist/*
+
+  build-binaries:
+    name: Build ${{ matrix.artifact-name }}
+    runs-on: ${{ matrix.os }}
+    needs:
+      - validate-release
+      - test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact-name: memoria-linux-x86_64
+            executable-name: memoria
+          - os: macos-latest
+            artifact-name: memoria-macos-arm64
+            executable-name: memoria
+          - os: windows-latest
+            artifact-name: memoria-windows-x86_64.exe
+            executable-name: memoria.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --extra binary
+
+      - name: Build binary
+        shell: bash
+        run: |
+          uv run pyinstaller \
+            --onefile \
+            --name memoria \
+            src/memoria/__main__.py
+          mkdir -p release-assets
+          cp "dist/${{ matrix.executable-name }}" "release-assets/${{ matrix.artifact-name }}"
+
+      - name: Smoke test binary
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ./release-assets/${{ matrix.artifact-name }} --help
+          else
+            chmod +x ./release-assets/${{ matrix.artifact-name }}
+            ./release-assets/${{ matrix.artifact-name }} --help
+          fi
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: release-assets/${{ matrix.artifact-name }}
+
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs:
+      - validate-release
+      - build-package
+      - build-binaries
+    if: github.event_name == 'push' || inputs.publish_pypi
+    environment:
+      name: pypi
+      url: https://pypi.org/p/memoria-cli
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package
+          path: dist
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs:
+      - validate-release
+      - build-package
+      - build-binaries
+      - publish-pypi
+    if: always() && needs.build-package.result == 'success' && needs.build-binaries.result == 'success' && (needs.publish-pypi.result == 'success' || needs.publish-pypi.result == 'skipped')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-downloads
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find release-downloads -maxdepth 3 -type f -print -exec cp {} release-assets/ \;
+          ls -la release-assets
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate-release.outputs.tag }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" release-assets/* --clobber
+          else
+            gh release create "${TAG}" release-assets/* \
+              --title "Memoria ${VERSION}" \
+              --notes "Release ${VERSION}" \
+              --target "${GITHUB_SHA}"
+          fi
