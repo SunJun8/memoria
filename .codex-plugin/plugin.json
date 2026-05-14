@@ -1,0 +1,38 @@
+{
+  "name": "memoria",
+  "version": "0.1.0",
+  "description": "Local-first LLM-driven memory skill for recording, consolidating, and querying Memoria work memories.",
+  "author": {
+    "name": "Memoria contributors",
+    "url": "https://github.com/SunJun8/memoria"
+  },
+  "homepage": "https://github.com/SunJun8/memoria",
+  "repository": "https://github.com/SunJun8/memoria",
+  "keywords": [
+    "memory",
+    "llm",
+    "cli",
+    "openai",
+    "sqlite"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Memoria",
+    "shortDescription": "Record and query local work memories",
+    "longDescription": "Memoria provides a local-first CLI workflow for saving raw work context, running LLM sleep consolidation, querying Memory Issues and Chains, and understanding the backend tool-call flow.",
+    "developerName": "Memoria contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Shell"
+    ],
+    "websiteURL": "https://github.com/SunJun8/memoria",
+    "defaultPrompt": [
+      "Use $memoria to record this work context into Memoria.",
+      "Use $memoria to query recent Memoria issues.",
+      "Use $memoria to explain the Memoria sleep tool loop."
+    ],
+    "brandColor": "#3B82F6"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "memoria",
+  "version": "0.1.0",
+  "description": "Local-first LLM-driven memory skill for recording, consolidating, and querying Memoria work memories.",
+  "author": {
+    "name": "Memoria contributors"
+  },
+  "homepage": "https://github.com/SunJun8/memoria",
+  "repository": "https://github.com/SunJun8/memoria",
+  "keywords": [
+    "memory",
+    "llm",
+    "cli",
+    "openai",
+    "sqlite"
+  ]
+}

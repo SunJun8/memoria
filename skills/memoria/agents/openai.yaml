@@ -1,0 +1,4 @@
+interface:
+  display_name: "Memoria"
+  short_description: "Record and query local Memoria memories"
+  default_prompt: "Use $memoria to record this work context into Memoria."

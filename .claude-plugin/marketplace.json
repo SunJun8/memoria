@@ -1,0 +1,26 @@
+{
+  "name": "memoria",
+  "owner": {
+    "name": "Memoria contributors"
+  },
+  "metadata": {
+    "description": "Local-first LLM-driven memory skill for recording, consolidating, querying, and inspecting Memoria work memories."
+  },
+  "plugins": [
+    {
+      "name": "memoria",
+      "source": "./",
+      "description": "Local-first LLM-driven memory skill for recording, consolidating, and querying Memoria work memories.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Memoria contributors"
+      },
+      "category": "Productivity",
+      "tags": [
+        "memory",
+        "llm",
+        "cli"
+      ]
+    }
+  ]
+}
