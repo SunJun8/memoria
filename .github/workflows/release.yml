@@ -79,6 +79,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
+          cache-suffix: release-test-py${{ matrix.python-version }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -110,6 +111,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
+          cache-suffix: release-build-package-py3.11
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -161,6 +163,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
+          cache-suffix: release-binary-${{ matrix.artifact-name }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
