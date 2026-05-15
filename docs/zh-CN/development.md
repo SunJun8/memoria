@@ -43,7 +43,7 @@ uv build
 从本地 wheel 验证隔离安装：
 
 ```bash
-uv tool install --python 3.11 dist/memoria_cli-0.1.3-py3-none-any.whl
+uv tool install --python 3.11 dist/memoria_cli-0.1.4-py3-none-any.whl
 memoria --help
 ```
 

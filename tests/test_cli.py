@@ -1,12 +1,90 @@
 import json
+import tomllib
+from pathlib import Path
 
 from typer.testing import CliRunner
 
+from memoria import __version__
 from memoria.infrastructure.llm.mock_provider import MockLLMProvider
 from memoria.infrastructure.db.session import create_engine_for_path, create_session_factory
 from memoria.infrastructure.db.models import LLMJob, Proposal
 from memoria.interfaces.cli.app import app
 from memoria.interfaces.cli.commands import sleep as sleep_command
+
+
+def test_package_version_matches_pyproject():
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    project_version = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))["project"]["version"]
+
+    assert __version__ == project_version
+
+
+def test_cli_version_shows_runtime_build_info(monkeypatch):
+    monkeypatch.setenv("MEMORIA_BUILD_TIME", "2026-05-15T03:04:05Z")
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert f"Memoria {__version__}" in result.stdout
+    assert "Build time: 2026-05-15T03:04:05Z" in result.stdout
+    assert "Python:" in result.stdout
+    assert "Platform:" in result.stdout
+
+
+def test_cli_version_uses_unknown_build_time_fallback(monkeypatch):
+    monkeypatch.delenv("MEMORIA_BUILD_TIME", raising=False)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert "Build time: unknown" in result.stdout
+
+
+def test_version_info_falls_back_when_build_info_missing(monkeypatch):
+    import builtins
+    import importlib
+
+    import memoria.version as version_module
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "memoria.build_info":
+            raise ModuleNotFoundError(name=name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delenv("MEMORIA_BUILD_TIME", raising=False)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    try:
+        version_module = importlib.reload(version_module)
+        assert version_module.get_version_info().build_time == "unknown"
+    finally:
+        importlib.reload(version_module)
+
+
+def test_version_info_reraises_nested_build_info_import_error(monkeypatch):
+    import builtins
+
+    import pytest
+
+    from memoria.version import get_version_info
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "memoria.build_info":
+            raise ModuleNotFoundError(name="missing_dependency")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delenv("MEMORIA_BUILD_TIME", raising=False)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(ModuleNotFoundError) as exc_info:
+        get_version_info()
+
+    assert exc_info.value.name == "missing_dependency"
 
 
 def test_cli_ingest_and_list_issues(monkeypatch, tmp_path):

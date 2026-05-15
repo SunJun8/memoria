@@ -51,8 +51,31 @@ jobs:
               print(tomllib.load(fh)["project"]["version"])
           PY
           )"
+          package_version="$(python - <<'PY'
+          import ast
+
+          with open("src/memoria/__init__.py", "r", encoding="utf-8") as fh:
+              module = ast.parse(fh.read())
+
+          for node in module.body:
+              if (
+                  isinstance(node, ast.Assign)
+                  and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
+                  and isinstance(node.value, ast.Constant)
+                  and isinstance(node.value.value, str)
+              ):
+                  print(node.value.value)
+                  break
+          else:
+              raise SystemExit("Could not find __version__ in src/memoria/__init__.py")
+          PY
+          )"
           if [[ "${version}" != "${project_version}" ]]; then
             echo "Requested version ${version} does not match pyproject.toml ${project_version}" >&2
+            exit 1
+          fi
+          if [[ "${version}" != "${package_version}" ]]; then
+            echo "Requested version ${version} does not match src/memoria/__init__.py ${package_version}" >&2
             exit 1
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
@@ -119,14 +142,28 @@ jobs:
           python-version: "3.11"
 
       - name: Build sdist and wheel
-        run: uv build
+        shell: bash
+        run: |
+          build_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          printf 'BUILD_TIME = "%s"\n' "${build_time}" > src/memoria/build_info.py
+          uv build
 
       - name: Smoke test wheel install
+        shell: bash
         run: |
+          set -euo pipefail
           python -m venv /tmp/memoria-wheel-smoke
           /tmp/memoria-wheel-smoke/bin/python -m pip install --upgrade pip
           /tmp/memoria-wheel-smoke/bin/python -m pip install dist/*.whl
           /tmp/memoria-wheel-smoke/bin/memoria --help
+          version_output="$(/tmp/memoria-wheel-smoke/bin/memoria --version)"
+          echo "${version_output}"
+          grep -Fx "Memoria ${{ needs.validate-release.outputs.version }}" <<< "${version_output}"
+          grep -Ex "Build time: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z" <<< "${version_output}"
+          if grep -F "Build time: unknown" <<< "${version_output}"; then
+            echo "Wheel build time should not be unknown" >&2
+            exit 1
+          fi
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v6
@@ -176,6 +213,8 @@ jobs:
       - name: Build binary
         shell: bash
         run: |
+          build_time="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          printf 'BUILD_TIME = "%s"\n' "${build_time}" > src/memoria/build_info.py
           uv run pyinstaller \
             --onefile \
             --name memoria \
@@ -186,11 +225,21 @@ jobs:
       - name: Smoke test binary
         shell: bash
         run: |
+          set -euo pipefail
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             ./release-assets/${{ matrix.artifact-name }} --help
+            version_output="$(./release-assets/${{ matrix.artifact-name }} --version)"
           else
             chmod +x ./release-assets/${{ matrix.artifact-name }}
             ./release-assets/${{ matrix.artifact-name }} --help
+            version_output="$(./release-assets/${{ matrix.artifact-name }} --version)"
+          fi
+          echo "${version_output}"
+          grep -Fx "Memoria ${{ needs.validate-release.outputs.version }}" <<< "${version_output}"
+          grep -Ex "Build time: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z" <<< "${version_output}"
+          if grep -F "Build time: unknown" <<< "${version_output}"; then
+            echo "Binary build time should not be unknown" >&2
+            exit 1
           fi
 
       - name: Upload binary artifact
