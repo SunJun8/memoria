@@ -1,10 +1,12 @@
 import json
+import importlib
+from io import BytesIO
+from importlib import metadata
 import tomllib
 from pathlib import Path
 
 from typer.testing import CliRunner
 
-from memoria import __version__
 from memoria.infrastructure.llm.mock_provider import MockLLMProvider
 from memoria.infrastructure.db.session import create_engine_for_path, create_session_factory
 from memoria.infrastructure.db.models import LLMJob, Proposal
@@ -12,14 +14,59 @@ from memoria.interfaces.cli.app import app
 from memoria.interfaces.cli.commands import sleep as sleep_command
 
 
-def test_package_version_matches_pyproject():
+def test_package_version_comes_from_distribution_metadata(monkeypatch):
+    import memoria
+
+    def fake_version(distribution_name: str) -> str:
+        assert distribution_name == "memoria-cli"
+        return "9.8.7"
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(metadata, "version", fake_version)
+            reloaded_memoria = importlib.reload(memoria)
+
+            assert reloaded_memoria.__version__ == "9.8.7"
+    finally:
+        importlib.reload(memoria)
+
+
+def test_package_version_matches_pyproject_when_installed():
     pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
     project_version = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))["project"]["version"]
 
-    assert __version__ == project_version
+    installed_version = metadata.version("memoria-cli")
+
+    assert installed_version == project_version
+
+
+def test_package_version_falls_back_to_pyproject_when_metadata_missing(monkeypatch):
+    import memoria
+
+    def missing_version(distribution_name: str) -> str:
+        raise metadata.PackageNotFoundError(distribution_name)
+
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+
+    def fake_open(path: Path, mode: str = "r", *args, **kwargs):
+        assert path == pyproject_path
+        assert mode == "rb"
+        return BytesIO(b'[project]\nversion = "8.7.6"\n')
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(metadata, "version", missing_version)
+            patch.setattr(Path, "open", fake_open)
+            reloaded_memoria = importlib.reload(memoria)
+
+            assert reloaded_memoria.__version__ == "8.7.6"
+    finally:
+        importlib.reload(memoria)
 
 
 def test_cli_version_shows_runtime_build_info(monkeypatch):
+    from memoria import __version__
+
     monkeypatch.setenv("MEMORIA_BUILD_TIME", "2026-05-15T03:04:05Z")
     runner = CliRunner()
 

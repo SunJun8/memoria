@@ -51,31 +51,8 @@ jobs:
               print(tomllib.load(fh)["project"]["version"])
           PY
           )"
-          package_version="$(python - <<'PY'
-          import ast
-
-          with open("src/memoria/__init__.py", "r", encoding="utf-8") as fh:
-              module = ast.parse(fh.read())
-
-          for node in module.body:
-              if (
-                  isinstance(node, ast.Assign)
-                  and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
-                  and isinstance(node.value, ast.Constant)
-                  and isinstance(node.value.value, str)
-              ):
-                  print(node.value.value)
-                  break
-          else:
-              raise SystemExit("Could not find __version__ in src/memoria/__init__.py")
-          PY
-          )"
           if [[ "${version}" != "${project_version}" ]]; then
             echo "Requested version ${version} does not match pyproject.toml ${project_version}" >&2
-            exit 1
-          fi
-          if [[ "${version}" != "${package_version}" ]]; then
-            echo "Requested version ${version} does not match src/memoria/__init__.py ${package_version}" >&2
             exit 1
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
@@ -218,6 +195,7 @@ jobs:
           uv run pyinstaller \
             --onefile \
             --name memoria \
+            --copy-metadata memoria-cli \
             src/memoria/__main__.py
           mkdir -p release-assets
           cp "dist/${{ matrix.executable-name }}" "release-assets/${{ matrix.artifact-name }}"

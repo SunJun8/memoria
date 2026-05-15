@@ -43,14 +43,14 @@ uv build
 Verify isolated installation from a local wheel:
 
 ```bash
-uv tool install --python 3.11 dist/memoria_cli-0.1.4-py3-none-any.whl
+uv tool install --python 3.11 dist/memoria_cli-*.whl
 memoria --help
 ```
 
 Build a Linux x86_64 single-file binary:
 
 ```bash
-uv run --extra binary pyinstaller --onefile --name memoria-linux-x86_64 --clean src/memoria/__main__.py
+uv run --extra binary pyinstaller --onefile --name memoria-linux-x86_64 --copy-metadata memoria-cli --clean src/memoria/__main__.py
 ```
 
 ## Release

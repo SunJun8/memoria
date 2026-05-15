@@ -43,14 +43,14 @@ uv build
 从本地 wheel 验证隔离安装：
 
 ```bash
-uv tool install --python 3.11 dist/memoria_cli-0.1.4-py3-none-any.whl
+uv tool install --python 3.11 dist/memoria_cli-*.whl
 memoria --help
 ```
 
 构建 Linux x86_64 单文件二进制：
 
 ```bash
-uv run --extra binary pyinstaller --onefile --name memoria-linux-x86_64 --clean src/memoria/__main__.py
+uv run --extra binary pyinstaller --onefile --name memoria-linux-x86_64 --copy-metadata memoria-cli --clean src/memoria/__main__.py
 ```
 
 ## 发布
