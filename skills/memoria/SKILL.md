@@ -1,90 +1,43 @@
 ---
 name: memoria
-description: "Use when an agent needs to record work context into Memoria, query memory issues/chains/patches/jobs, run sleep consolidation, inspect raw-to-issue results, or explain/debug Memoria's LLM memory tool-call flow."
+description: "Use when an agent needs to operate Memoria CLI, record work context as local memory, query issues/chains/proposals/patches/sleep jobs, configure Memoria, run sleep consolidation, inspect memory audit results, or explain/debug Memoria's LLM memory flow."
 ---
 
 # Memoria
 
 ## Overview
 
-Memoria 是一个本地优先的 CLI 记忆系统。用这个 skill 记录简洁的工作记忆、运行睡眠整理、查询结构化记忆，并解释 LLM 后端的 tool-call 流程。
+Memoria 是本地优先的 CLI 记忆系统，用 SQLite、JSONL transcript 和本地备份保存 agent 工作记忆。它把 raw notes、任务上下文、项目决策和工作记录整理成 Memory Issue、Memory Chain、Proposal 与可审计 Patch。
 
-## Install
+这个 skill 的目标是让 agent 会用 Memoria，而不是重新解释 Memoria 的产品概念。遇到 Memoria 相关任务时，先按下面的索引读取对应 reference。
 
-优先使用隔离安装：
+## Start Here
 
-```bash
-uv tool install memoria-cli
-memoria --help
-```
+- 日常记录、整理、查询、审计、备份：读 [references/usage.md](references/usage.md)。
+- 安装、路径、配置、OpenAI key、隔离测试环境：读 [references/configuration.md](references/configuration.md)。
+- 排障、sleep job、transcript、raw-to-issue、内部 LLM tool-call 流程：读 [references/debugging.md](references/debugging.md)。
 
-如果使用 pip，用户本机 Python 必须已经是 3.11 或更高版本：
+如果用户只说“把这次工作记到 memoria”，通常只需要读 `references/usage.md` 的 `Record Memory` 和 `Consolidate`。
 
-```bash
-python -m pip install memoria-cli
-memoria --help
-```
+## Operating Rules
 
-PyPI 包名是 `memoria-cli`；安装后的命令是 `memoria`。
+- 对 agent 后续要消费的输出，优先使用 `--json`。
+- 记录 memory 时写事实、决策、路径、测试结果、约束和待办；不要写 secret、token、凭据、私钥或未脱敏个人敏感信息。
+- 在 Memoria 源码仓库内验证当前代码时，用 `uv run memoria ...`；使用已安装工具时，用 `memoria ...`。
+- 冒烟测试、演示和不确定环境优先用 `memoria sleep --mock`。只有用户要求或环境已配置 OpenAI key 时，才运行真实 `memoria sleep`。
+- 不要假设存在 raw 查询命令。当前 CLI 没有 `raw list`；追踪 raw entry 是否被消费时，查看 sleep job、patch record 和 transcript。
+- 恢复备份会改动本地 Memoria 数据，除非用户明确要求，不要运行 `backup restore` 或 `backup restore-git`。
 
-## Record Memory
-
-记录未来 agent 应该知道的事实、决策、测试结果和路径。不要把 secrets、token、凭据或私钥写进 memory。
-
-```bash
-memoria ingest text "事实、决策或测试结果。" \
-  --title "简短标题" \
-  --tag memoria \
-  --hint "整理成项目决策" \
-  --project-path "$PWD"
-```
-
-较长内容优先用 stdin：
+## Minimal Command Set
 
 ```bash
+memoria ingest text "事实、决策或测试结果。" --title "简短标题" --tag work --project-path "$PWD"
 printf '%s\n' "多行工作记录" | memoria ingest stdin --title "工作记录" --tag work
-```
-
-## Consolidate
-
-冒烟测试和流程检查优先使用 mock：
-
-```bash
 memoria sleep --mock
-```
-
-只有在用户明确要求或环境已经配置好时，才运行真实 OpenAI 整理：
-
-```bash
-export OPENAI_API_KEY="..."
-memoria sleep --limit 20 --strictness balanced
-```
-
-## Query
-
-需要比较结果或继续交给 agent 处理时，使用 JSON 输出：
-
-```bash
 memoria issue list --json
-memoria issue show <id> --json
 memoria issue search "keyword" --json
-memoria chain list --json
-memoria patch list --json
 memoria sleep list --json
-memoria sleep show <job-id> --json
+memoria patch list --json
 ```
 
-Memoria 0.1.0 没有暴露 `raw list` CLI 命令。`issue list` 展示的是整理后的 Memory Issues，不是 raw entries；需要追踪 raw 如何被消费时，查看 patch 和 sleep job。
-
-## LLM Tool Flow
-
-后端里，`SleepService.run()` 先创建 sleep job，然后 `_run_and_commit_job()` 调用 `LLMToolService.get_system_state(limit)` 收集 pending raw entries。
-
-`OpenAIProvider.run_memory_job()` 把 prompt 发给 OpenAI Responses API，并暴露严格 function tools：
-
-- `list_issues(limit, status)`
-- `search_issues(query, limit)`
-- `get_issue(issue_id)`
-- `list_chains(limit)`
-
-每个 function call 都通过本地 `LLMToolService` 执行为只读查询。Provider 追加 `function_call_output` 消息并循环，直到没有 tool calls。最终响应必须是严格的 `MemoryPatch`；`PatchService` 事务性应用 patch，transcript events 会记录 `request`、`response`、`tool_call`、`tool_result` 和 `patch`。
+需要更多参数、配置和排障步骤时，加载对应 reference，不要凭记忆补命令。
