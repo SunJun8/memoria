@@ -11,6 +11,8 @@ from memoria.application.services.llm_tool_service import LLMToolService
 from memoria.infrastructure.db.models import LLMJob, MemoryIssue, RawEntry, SleepReport
 from memoria.infrastructure.llm.mock_provider import MockLLMProvider
 from memoria.infrastructure.transcript.jsonl_store import JsonlTranscriptStore
+from memoria.schemas.llm import LLMRunResult
+from memoria.schemas.patches import MemoryPatch, PatchOperation
 
 
 def test_sleep_with_mock_provider_creates_issue_and_report(session_factory, tmp_path):
@@ -145,6 +147,50 @@ def test_sleep_after_success_failure_does_not_mark_job_failed(session_factory, t
 
     assert job.status == "succeeded"
     assert issues[0].title == "Mock consolidated memory"
+
+
+class SleepReportWithoutJobIdProvider:
+    def run_memory_job(self, *, system_state, tools, strictness):
+        patch = MemoryPatch(
+            actor="llm",
+            source="test_provider",
+            operations=[
+                PatchOperation(
+                    operation_id="test-create-sleep-report",
+                    operation_type="create_sleep_report",
+                    reason="Provider reports sleep summary without knowing DB job id.",
+                    confidence=1.0,
+                    payload={"report_json": {"mode": "sleep", "strictness": strictness}},
+                )
+            ],
+        )
+        return LLMRunResult(
+            patch=patch,
+            report={"mode": "sleep", "strictness": strictness},
+            transcript_events=[],
+        )
+
+
+def test_sleep_injects_job_id_into_llm_sleep_report_operation(session_factory, tmp_path):
+    sleep = SleepService(
+        session_factory=session_factory,
+        query_service=QueryService(session_factory),
+        patch_service=PatchService(session_factory),
+        llm_provider=SleepReportWithoutJobIdProvider(),
+        transcript_store=JsonlTranscriptStore(tmp_path),
+        model="test-model",
+        reasoning_effort="medium",
+    )
+
+    job_id = sleep.run(limit=10, strictness="balanced")
+
+    with session_factory() as session:
+        job = session.get(LLMJob, job_id)
+        report = session.scalars(select(SleepReport)).one()
+
+    assert job.status == "succeeded"
+    assert report.job_id == job_id
+    assert report.report_json == {"mode": "sleep", "strictness": "balanced"}
 
 
 def test_association_service_records_association_job_type(session_factory, tmp_path):

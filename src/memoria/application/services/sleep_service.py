@@ -65,7 +65,8 @@ class SleepService:
         )
         with self._session_factory() as session:
             try:
-                result.patch.job_id = job_id
+                self._attach_job_id(result.patch, job_id)
+                patch_creates_sleep_report = self._patch_creates_sleep_report(result.patch)
                 patch_id = self._patch_service.apply_patch_in_session(session, result.patch)
                 job = session.get(LLMJob, job_id)
                 if job is None:
@@ -76,13 +77,26 @@ class SleepService:
                 job.transcript_sha256 = transcript.sha256
                 job.final_report_json = result.report
                 job.completed_at = utcnow()
-                session.add(SleepReport(job_id=job_id, report_json=result.report))
+                if not patch_creates_sleep_report:
+                    session.add(SleepReport(job_id=job_id, report_json=result.report))
                 if self._finalize_hook is not None:
                     self._finalize_hook()
                 session.commit()
             except Exception:
                 session.rollback()
                 raise
+
+    @staticmethod
+    def _attach_job_id(patch, job_id: int) -> None:
+        patch.job_id = job_id
+        for operation in patch.operations:
+            operation.job_id = job_id
+            if operation.operation_type == "create_sleep_report":
+                operation.payload.setdefault("job_id", job_id)
+
+    @staticmethod
+    def _patch_creates_sleep_report(patch) -> bool:
+        return any(operation.operation_type == "create_sleep_report" for operation in patch.operations)
 
     def _create_job(self, strictness: str) -> int:
         with self._session_factory() as session:

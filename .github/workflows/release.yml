@@ -263,6 +263,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Download release artifacts
         uses: actions/download-artifact@v7
         with:
@@ -276,6 +279,56 @@ jobs:
           find release-downloads -maxdepth 3 -type f -print -exec cp {} release-assets/ \;
           ls -la release-assets
 
+      - name: Prepare release notes
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          changelog = Path("CHANGELOG.md")
+          headings = (
+              f"## {version}",
+              f"## v{version}",
+              f"## [{version}]",
+              f"## [v{version}]",
+          )
+
+          if changelog.exists():
+              lines = changelog.read_text(encoding="utf-8").splitlines()
+              start = next(
+                  (
+                      index
+                      for index, line in enumerate(lines)
+                      if any(line.strip().startswith(heading) for heading in headings)
+                  ),
+                  None,
+              )
+              if start is not None:
+                  end = next(
+                      (
+                          index
+                          for index in range(start + 1, len(lines))
+                          if lines[index].startswith("## ")
+                      ),
+                      len(lines),
+                  )
+                  notes = "\n".join(lines[start + 1 : end]).strip()
+                  if notes:
+                      Path("release-notes.md").write_text(notes + "\n", encoding="utf-8")
+                      raise SystemExit
+
+          Path("release-notes.md").write_text(
+              f"Memoria {version}\n\nSee commit history for release details.\n",
+              encoding="utf-8",
+          )
+          PY
+          cat release-notes.md
+
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -286,10 +339,13 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" \
+              --title "Memoria ${VERSION}" \
+              --notes-file release-notes.md
             gh release upload "${TAG}" release-assets/* --clobber
           else
             gh release create "${TAG}" release-assets/* \
               --title "Memoria ${VERSION}" \
-              --notes "Release ${VERSION}" \
+              --notes-file release-notes.md \
               --target "${GITHUB_SHA}"
           fi
